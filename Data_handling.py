@@ -49,11 +49,15 @@ def build_series(
 
     # Calculate daily realized variance (RV = sum of squared intraday returns)
     rv_daily = logret_5m.pow(2).resample("1D").sum().dropna()
+    rv_daily = rv_daily.replace(0, np.nan).dropna()
+    rv_daily = rv_daily[rv_daily > 0]
+    rv_daily = rv_daily.sort_index()
 
     return data, mid_5m, logret_5m, rv_daily
 
 
 if __name__ == "__main__":
     _, _, _, rv_daily = build_series()
+    rv_daily.to_csv("rv_daily.csv", index=True)
    
 

@@ -61,6 +61,20 @@ harq_df = pd.DataFrame({
 }).dropna()
 harq_df["interaction"] = harq_df["sqrt_rq_lag1"] * harq_df["rv_lag1"]
 
+# Construct regressor space dataframe for log‑HAR
+log_rv = np.log(rv_daily).dropna()
+
+log_rv_lag1  = log_rv.shift(1)
+log_rv_week  = log_rv.shift(1).rolling(5).mean()
+log_rv_month = log_rv.shift(1).rolling(22).mean()
+
+loghar_df = pd.DataFrame({
+    "logrv": log_rv,
+    "logrv_lag1": log_rv_lag1,
+    "logrv_week": log_rv_week,
+    "logrv_month": log_rv_month
+}).dropna()
+
 #Divide data in to training and test set (80/20)
 split_idx = int(0.8 * len(har_df))
 split_date = har_df.index[split_idx]
@@ -77,10 +91,18 @@ shar_test  = shar_df[shar_df.index >= split_date]
 harq_train = harq_df[harq_df.index <  split_date]
 harq_test  = harq_df[harq_df.index >= split_date]
 
+split_idx  = int(0.8 * len(loghar_df))
+split_date = loghar_df.index[split_idx]
+
+loghar_train = loghar_df[loghar_df.index < split_date]
+loghar_test  = loghar_df[loghar_df.index >= split_date]
+
+
 #Function for calculating mean squared error 
 def mse(pred, actual):
     return ((pred - actual) ** 2).mean()
 
+#Function for including constant
 def _add_const_and_align(X_like: pd.DataFrame, ref_cols: pd.Index) -> pd.DataFrame:
     """
     Force-add a constant and align prediction exog to training exog columns.
@@ -92,6 +114,7 @@ def _add_const_and_align(X_like: pd.DataFrame, ref_cols: pd.Index) -> pd.DataFra
         Xc['const'] = 1.0
     return Xc
 
+#Function for computing rolling forecasts
 def rolling_forecast_ols(train_df, test_df, feature_cols, y_col="rv"):
     
     forecasts, actuals = [], []
@@ -153,5 +176,18 @@ harq_fc, harq_actual = rolling_forecast_ols(
 )
 print("MSE:", mse(harq_fc, harq_actual))
 
+#log-HAR
+print("\n log-HAR")
+loghar_fc_log, loghar_actual_log = rolling_forecast_ols(
+    loghar_train, loghar_test,
+    feature_cols=["logrv_lag1", "logrv_week", "logrv_month"],
+    y_col="logrv"
+)
 
+# Jensen correction as in paper
+resid_var = (loghar_actual_log - loghar_fc_log).var()
 
+loghar_fc = np.exp(loghar_fc_log + 0.5 * resid_var)
+loghar_actual = np.exp(loghar_actual_log)
+
+print("MSE:", mse(loghar_fc, loghar_actual))
