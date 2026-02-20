@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
+from statsmodels.tsa.stattools import adfuller
 
 from HAR_regressions import rolling_forecast_ols, mse
 
@@ -57,89 +58,103 @@ SP500  = align_to_idx(SP500, idx)
 T10Y   = align_to_idx(T10Y, idx)
 VIX    = align_to_idx(VIX, idx)
 
+# Augmented Dicky-Fuller test
+def adf_test(series, name="Series"):
+    result = adfuller(series.dropna(), autolag='AIC')
+    print(f"ADF Statistic:{result[0]:.4f}")
+    print(f"p-value:{result[1]:.4f}")
+    for key, value in result[4].items():
+        print(f"{key}: {value:.4f}")
+    
+    if result[1] < 0.05:
+        print("Stationary")
+    else:
+        print("Nonstationary")
+
 #Compute returns for indices (SP500 and NASDAQ)
-SP500_ret  = np.log(SP500 / SP500.shift(1))
-NASDAQ_ret = np.log(NASDAQ / NASDAQ.shift(1))
+SP500_ret=np.log(SP500 / SP500.shift(1))
+NASDAQ_ret=np.log(NASDAQ / NASDAQ.shift(1))
 
 #Endogenous regressors
-rv_lag1  = rv.shift(1)
-rv_week  = rv.shift(1).rolling(5).mean()
-rv_month = rv.shift(1).rolling(22).mean()
+rv_lag1=rv.shift(1)
+rv_week=rv.shift(1).rolling(5).mean()
+rv_month=rv.shift(1).rolling(22).mean()
 
 # Construct regressor space for HAR-X
 harx_df = pd.DataFrame({
     "rv": rv,
-    "rv_lag1":  rv_lag1,
-    "rv_week":  rv_week,
-    "rv_month": rv_month,
-
+    "rv_lag1":rv_lag1,
+    "rv_week":rv_week,
+    "rv_month":rv_month,
     # Exogenous regressors
-    "VIX_lag1":     VIX.shift(1),
-    "T10Y_lag1":    T10Y.shift(1),
-    "SP500_lag1":   SP500_ret.shift(1),
-    "NASDAQ_lag1":  NASDAQ_ret.shift(1),
-    "INFL_lag1":    INFL.shift(1),
-    "FEDFUN_lag1":  FEDFUN.shift(1),
-    "EPU_lag1":     EPU.shift(1)
+    "VIX_lag1":VIX.shift(1),
+    "T10Y_lag1":T10Y.shift(1),
+    "SP500_lag1":SP500_ret.shift(1),
+    "NASDAQ_lag1":NASDAQ_ret.shift(1),
+    "INFL_lag1":INFL.shift(1),
+    "FEDFUN_lag1":FEDFUN.shift(1),
+    "EPU_lag1":EPU.shift(1)
 }).dropna()
 
 # Construct regressor space for L-HAR-X
-log_rv        = np.log(rv)
-log_rv_lag1   = np.log(rv_lag1)
-log_rv_week   = np.log(rv_week)
-log_rv_month  = np.log(rv_month)
+log_rv= np.log(rv)
+log_rv_lag1=np.log(rv_lag1)
+log_rv_week=np.log(rv_week)
+log_rv_month=np.log(rv_month)
 
 lharx_df = pd.DataFrame({
-    "logrv":        log_rv,
-    "logrv_lag1":   log_rv_lag1,
-    "logrv_week":   log_rv_week,
-    "logrv_month":  log_rv_month,
-
-    # Exogenous regressors NOT logged:
-    "VIX_lag1":     VIX.shift(1),
-    "T10Y_lag1":    T10Y.shift(1),
-    "SP500_lag1":   SP500_ret.shift(1),
-    "NASDAQ_lag1":  NASDAQ_ret.shift(1),
-    "INFL_lag1":    INFL.shift(1),
-    "FEDFUN_lag1":  FEDFUN.shift(1),
-    "EPU_lag1":     EPU.shift(1)
+    "logrv":log_rv,
+    "logrv_lag1":log_rv_lag1,
+    "logrv_week":log_rv_week,
+    "logrv_month":log_rv_month,
+    # Exogenous regressors
+    "VIX_lag1":VIX.shift(1),
+    "T10Y_lag1":T10Y.shift(1),
+    "SP500_lag1":SP500_ret.shift(1),
+    "NASDAQ_lag1":NASDAQ_ret.shift(1),
+    "INFL_lag1":INFL.shift(1),
+    "FEDFUN_lag1":FEDFUN.shift(1),
+    "EPU_lag1":EPU.shift(1)
 }).dropna()
 
 #Divide data in to training and test set (80/20)
-split_idx = int(0.8 * len(harx_df))
-split_date = harx_df.index[split_idx]
+split_idx=int(0.8*len(harx_df))
+split_date=harx_df.index[split_idx]
 
-harx_train = harx_df[harx_df.index < split_date]
-harx_test  = harx_df[harx_df.index >= split_date]
+harx_train=harx_df[harx_df.index < split_date]
+harx_test=harx_df[harx_df.index >= split_date]
 
-split_idx = int(0.8 * len(lharx_df))
-split_date = lharx_df.index[split_idx]
+split_idx=int(0.8 * len(lharx_df))
+split_date=lharx_df.index[split_idx]
 
-lharx_train = lharx_df[lharx_df.index < split_date]
-lharx_test  = lharx_df[lharx_df.index >= split_date]
+lharx_train=lharx_df[lharx_df.index < split_date]
+lharx_test=lharx_df[lharx_df.index >= split_date]
 
-feature_cols_harx = [
-    "rv_lag1", "rv_week", "rv_month",
-    "VIX_lag1", "T10Y_lag1", "SP500_lag1",
-    "NASDAQ_lag1", "INFL_lag1", "FEDFUN_lag1", "EPU_lag1"
-]
+if __name__=="__main__":
+    # Check stationarity
+    adf_test(VIX,"VIX (price level)")
+    adf_test(T10Y,"10Y Treasury rate")
+    adf_test(SP500,"S&P 500 (price level)")
+    adf_test(NASDAQ,"NASDAQ (price level)")
+    adf_test(INFL,"Inflation")
+    adf_test(FEDFUN,"Federal Funds Rate")
+    adf_test(EPU,"EPU Index")
 
 #HAR-X model forecasts and MSE
-if __name__ == "__main__":
+if __name__=="__main__":
     print("\n HAR-X forecasts MSE")
-    harx_fc, harx_actual = rolling_forecast_ols(
+    harx_fc, harx_actual=rolling_forecast_ols(
         harx_train, harx_test,
-        feature_cols=[
-    "logrv_lag1", "logrv_week", "logrv_month",
-    "VIX_lag1", "T10Y_lag1", "SP500_lag1",
-    "NASDAQ_lag1", "INFL_lag1", "FEDFUN_lag1", "EPU_lag1"
+        feature_cols=['rv','rv_lag1','rv_week','rv_month',
+        'VIX_lag1', 'T10Y_lag1', 'SP500_lag1',
+        'NASDAQ_lag1', 'INFL_lag1', 'FEDFUN_lag1', 'EPU_lag1'
         ],
         y_col="rv"
     )
     print(mse(harx_fc, harx_actual))
 
 # L-HAR-X forecasts and MSE
-if __name__ == "__main__":
+if __name__=="__main__":
     print("\n L-HAR-X forecasts MSE")
     lharx_fc_log, lharx_actual_log = rolling_forecast_ols(
         lharx_train, lharx_test,
@@ -151,9 +166,9 @@ if __name__ == "__main__":
         y_col="logrv"
     )
     # Jensen correction 
-    resid_var = (lharx_actual_log - lharx_fc_log).var()
+    resid_var=(lharx_actual_log - lharx_fc_log).var()
 
-    lharx_fc     = np.exp(lharx_fc_log + 0.5 * resid_var)
-    lharx_actual = np.exp(lharx_actual_log)
+    lharx_fc=np.exp(lharx_fc_log + 0.5 * resid_var)
+    lharx_actual=np.exp(lharx_actual_log)
 
     print(mse(lharx_fc, lharx_actual))
