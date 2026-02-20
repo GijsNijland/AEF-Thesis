@@ -105,37 +105,37 @@ def mse(pred, actual):
     return ((pred - actual) ** 2).mean()
 
 #Model forecasts and MSE
+if __name__ == "__main__":
 
-#HAR model
-print("\n HAR forecasts MSE")
-har_fc, har_actual = rolling_forecast_ols(
-    har_train, har_test,
-    feature_cols=["rv_lag1", "rv_week", "rv_month"],
-    y_col="rv"
-)
-print(mse(har_fc, har_actual))
+    # HAR model
+    print("\n HAR forecasts MSE")
+    har_fc, har_actual = rolling_forecast_ols(
+        har_train, har_test,
+        feature_cols=["rv_lag1", "rv_week", "rv_month"],
+        y_col="rv"
+    )
+    print(mse(har_fc, har_actual))
 
-# HARQ model
-print("\n HARQ forecasts MSE")
-harq_fc, harq_actual = rolling_forecast_ols(
-    harq_train, harq_test,
-    feature_cols=["rv_lag1","interaction","rv_week","rv_month"],
-    y_col="rv"
-)
-print(mse(harq_fc, harq_actual))
+    # HARQ model
+    print("\n HARQ forecasts MSE")
+    harq_fc, harq_actual = rolling_forecast_ols(
+        harq_train, harq_test,
+        feature_cols=["rv_lag1","interaction","rv_week","rv_month"],
+        y_col="rv"
+    )
+    print(mse(harq_fc, harq_actual))
 
-#log-HAR
-print("\n log-HAR forecasts MSE")
-loghar_fc_log, loghar_actual_log = rolling_forecast_ols(
-    loghar_train, loghar_test,
-    feature_cols=["logrv_lag1", "logrv_week", "logrv_month"],
-    y_col="logrv"
-)
+    # log-HAR
+    print("\n log-HAR forecasts MSE")
+    loghar_fc_log, loghar_actual_log = rolling_forecast_ols(
+        loghar_train, loghar_test,
+        feature_cols=["logrv_lag1", "logrv_week", "logrv_month"],
+        y_col="logrv"
+    )
 
-# Jensen correction as in paper for log-HAR
-resid_var = (loghar_actual_log - loghar_fc_log).var()
+    # Jensen correction
+    resid_var = (loghar_actual_log - loghar_fc_log).var()
+    loghar_fc = np.exp(loghar_fc_log + 0.5 * resid_var)
+    loghar_actual = np.exp(loghar_actual_log)
 
-loghar_fc = np.exp(loghar_fc_log + 0.5 * resid_var)
-loghar_actual = np.exp(loghar_actual_log)
-
-print(mse(loghar_fc, loghar_actual))
+    print(mse(loghar_fc, loghar_actual))
