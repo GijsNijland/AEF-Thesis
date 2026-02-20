@@ -3,7 +3,7 @@ import pandas as pd
 import statsmodels.api as sm
 
 
-# Import time-series
+# Import realized variance
 from Data_handling import build_series
 data, mid_5m, logret_5m, rv_daily = build_series()
 
@@ -21,33 +21,8 @@ har_df = pd.DataFrame({
     "rv_month": rv_month
 }).dropna()
 
-#Construct regressor space dataframe for lev-HAR
-daily_ret = logret_5m.resample("1D").sum().reindex(rv.index)
-r_neg = daily_ret.clip(upper=0)
 
-lev_df = pd.DataFrame({
-    "rv": rv,
-    "rv_lag1": rv_lag1,
-    "rv_week": rv_week,
-    "rv_month": rv_month,
-    "rneg_lag1": r_neg.shift(1),
-    "rneg_week": r_neg.shift(1).rolling(5).mean(),
-    "rneg_month": r_neg.shift(1).rolling(22).mean()
-}).dropna()
-
-#Construct regressor space dataframe for SHAR
-rv_up   = logret_5m.clip(lower=0).pow(2).resample("1D").sum().reindex(rv.index)
-rv_down = logret_5m.clip(upper=0).pow(2).resample("1D").sum().reindex(rv.index)
-
-shar_df = pd.DataFrame({
-    "rv": rv,
-    "rv_up_lag1": rv_up.shift(1),
-    "rv_down_lag1": rv_down.shift(1),
-    "rv_week": rv_week,
-    "rv_month": rv_month
-}).dropna()
-
-#Construct regressor space dataframe forHARQ
+#Construct regressor space dataframe for HARQ
 n_per_day = int(logret_5m.groupby(logret_5m.index.date).size().median())
 rq = (n_per_day / 3.0) * logret_5m.pow(4).resample("1D").sum()
 rq = rq.reindex(rv.index)
@@ -82,12 +57,6 @@ split_date = har_df.index[split_idx]
 har_train  = har_df[har_df.index <  split_date]
 har_test   = har_df[har_df.index >= split_date]
 
-lev_train  = lev_df[lev_df.index <  split_date]
-lev_test   = lev_df[lev_df.index >= split_date]
-
-shar_train = shar_df[shar_df.index <  split_date]
-shar_test  = shar_df[shar_df.index >= split_date]
-
 harq_train = harq_df[harq_df.index <  split_date]
 harq_test  = harq_df[harq_df.index >= split_date]
 
@@ -96,11 +65,6 @@ split_date = loghar_df.index[split_idx]
 
 loghar_train = loghar_df[loghar_df.index < split_date]
 loghar_test  = loghar_df[loghar_df.index >= split_date]
-
-
-#Function for calculating mean squared error 
-def mse(pred, actual):
-    return ((pred - actual) ** 2).mean()
 
 #Function for including constant
 def _add_const_and_align(X_like: pd.DataFrame, ref_cols: pd.Index) -> pd.DataFrame:
@@ -136,58 +100,42 @@ def rolling_forecast_ols(train_df, test_df, feature_cols, y_col="rv"):
 
     return pd.Series(forecasts, index=test_df.index), pd.Series(actuals, index=test_df.index)
 
+#Function for calculating mean squared error 
+def mse(pred, actual):
+    return ((pred - actual) ** 2).mean()
 
 #Model forecasts and MSE
 
 #HAR model
-print("\n HAR")
+print("\n HAR forecasts MSE")
 har_fc, har_actual = rolling_forecast_ols(
     har_train, har_test,
     feature_cols=["rv_lag1", "rv_week", "rv_month"],
     y_col="rv"
 )
-print("MSE:", mse(har_fc, har_actual))
-
-
-# LevHAR model
-print("\n LevHAR")
-lev_fc, lev_actual = rolling_forecast_ols(
-    lev_train, lev_test,
-    feature_cols=["rv_lag1","rv_week","rv_month","rneg_lag1","rneg_week","rneg_month"],
-    y_col="rv"
-)
-print("MSE:", mse(lev_fc, lev_actual))
-
-# SHAR model
-print("\n SHAR")
-shar_fc, shar_actual = rolling_forecast_ols(
-    shar_train, shar_test,
-    feature_cols=["rv_up_lag1","rv_down_lag1","rv_week","rv_month"],
-    y_col="rv"
-)
-print("MSE:", mse(shar_fc, shar_actual))
+print(mse(har_fc, har_actual))
 
 # HARQ model
-print("\n HARQ")
+print("\n HARQ forecasts MSE")
 harq_fc, harq_actual = rolling_forecast_ols(
     harq_train, harq_test,
     feature_cols=["rv_lag1","interaction","rv_week","rv_month"],
     y_col="rv"
 )
-print("MSE:", mse(harq_fc, harq_actual))
+print(mse(harq_fc, harq_actual))
 
 #log-HAR
-print("\n log-HAR")
+print("\n log-HAR forecasts MSE")
 loghar_fc_log, loghar_actual_log = rolling_forecast_ols(
     loghar_train, loghar_test,
     feature_cols=["logrv_lag1", "logrv_week", "logrv_month"],
     y_col="logrv"
 )
 
-# Jensen correction as in paper
+# Jensen correction as in paper for log-HAR
 resid_var = (loghar_actual_log - loghar_fc_log).var()
 
 loghar_fc = np.exp(loghar_fc_log + 0.5 * resid_var)
 loghar_actual = np.exp(loghar_actual_log)
 
-print("MSE:", mse(loghar_fc, loghar_actual))
+print(mse(loghar_fc, loghar_actual))
