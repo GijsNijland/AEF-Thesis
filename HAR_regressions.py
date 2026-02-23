@@ -5,21 +5,42 @@ import statsmodels.api as sm
 
 # Import realized variance
 from Data_handling import build_series
-data, mid_5m, logret_5m, rv_daily = build_series()
+# Function to get HAR data (used in Regularized_HAR_regressions.py)
+def get_har_data():
+    data, mid_5m, logret_5m, rv_daily = build_series()
 
-#Construct regressor space dataframe for HAR
-rv=rv_daily.copy()
+    #Construct regressor space dataframe for HAR
+    rv=rv_daily.copy()
 
-rv_lag1=rv.shift(1)
-rv_week=rv.shift(1).rolling(5).mean()
-rv_month=rv.shift(1).rolling(22).mean()
+    rv_lag1=rv.shift(1)
+    rv_week=rv.shift(1).rolling(5).mean()
+    rv_month=rv.shift(1).rolling(22).mean()
 
-har_df=pd.DataFrame({
+    har_df=pd.DataFrame({
     "rv": rv,
     "rv_lag1":rv_lag1,
     "rv_week":rv_week,
     "rv_month":rv_month
-}).dropna()
+    }).dropna()
+
+    split_idx=int(0.8 * len(har_df))
+    split_date=har_df.index[split_idx]
+
+    har_train=har_df[har_df.index <  split_date]
+    har_test=har_df[har_df.index >= split_date]
+
+    feature_cols=["rv_lag1","rv_week","rv_month"]
+    return (
+        har_train, har_test, feature_cols,
+        logret_5m, rv_daily,
+        rv, rv_lag1, rv_week, rv_month,split_idx, split_date)
+
+
+(
+    har_train, har_test, feature_cols,
+    logret_5m, rv_daily,
+    rv, rv_lag1, rv_week, rv_month, split_idx, split_date
+) = get_har_data()
 
 #Construct regressor space dataframe for HARQ
 n_per_day=int(logret_5m.groupby(logret_5m.index.date).size().median())
@@ -49,13 +70,50 @@ loghar_df=pd.DataFrame({
     "logrv_month":log_rv_month
 }).dropna()
 
+#Construct regressor space dataframe for Lev-HAR
+
+# 1) Daily returns from intraday log returns
+daily_ret = logret_5m.resample("1D").sum().reindex(rv.index)
+
+ret_lag1 =daily_ret.shift(1)
+ret_week=daily_ret.shift(1).rolling(5).mean()
+ret_month=daily_ret.shift(1).rolling(22).mean()
+
+retneg_lag1=np.minimum(ret_lag1,  0.0)
+retneg_week=np.minimum(ret_week,  0.0)
+retneg_month=np.minimum(ret_month, 0.0)
+
+levhar_df = pd.DataFrame({
+    "rv": rv,
+    "rv_lag1": rv_lag1,
+    "rv_week": rv_week,
+    "rv_month": rv_month,
+    "retneg_lag1": retneg_lag1,
+    "retneg_week": retneg_week,
+    "retneg_month": retneg_month
+}).dropna()
+
+#Construct HARQ regressor space
+#Daily semivariances
+r5 = logret_5m.copy()
+pos_sq=(r5.where(r5 > 0.0, 0.0))**2
+neg_sq=(r5.where(r5 < 0.0, 0.0))**2
+
+rv_pos=pos_sq.resample("1D").sum().reindex(rv.index)  
+rv_neg=neg_sq.resample("1D").sum().reindex(rv.index)  
+
+rvpos_lag1=rv_pos.shift(1)
+rvneg_lag1=rv_neg.shift(1)
+
+shar_df = pd.DataFrame({
+    "rv": rv,
+    "rvpos_lag1": rvpos_lag1,
+    "rvneg_lag1": rvneg_lag1,
+    "rv_week": rv_week,
+    "rv_month": rv_month
+}).dropna()
+
 #Divide data in to training and test set (80/20)
-split_idx=int(0.8 * len(har_df))
-split_date=har_df.index[split_idx]
-
-har_train=har_df[har_df.index <  split_date]
-har_test=har_df[har_df.index >= split_date]
-
 harq_train=harq_df[harq_df.index <  split_date]
 harq_test=harq_df[harq_df.index >= split_date]
 
@@ -64,6 +122,19 @@ split_date=loghar_df.index[split_idx]
 
 loghar_train=loghar_df[loghar_df.index < split_date]
 loghar_test=loghar_df[loghar_df.index >= split_date]
+
+split_idx = int(0.8 * len(levhar_df))
+split_date = levhar_df.index[split_idx]
+
+levhar_train = levhar_df[levhar_df.index <  split_date]
+levhar_test  = levhar_df[levhar_df.index >= split_date]
+
+split_idx = int(0.8 * len(shar_df))
+split_date = shar_df.index[split_idx]
+
+shar_train = shar_df[shar_df.index <  split_date]
+shar_test  = shar_df[shar_df.index >= split_date]
+
 
 #Function for including constant
 def _add_const_and_align(X_like: pd.DataFrame, ref_cols: pd.Index) -> pd.DataFrame:
@@ -134,3 +205,23 @@ if __name__=="__main__":
     loghar_actual=np.exp(loghar_actual_log)
 
     print(mse(loghar_fc, loghar_actual))
+
+    
+    # Lev-HAR model
+    print("\n LevHAR forecasts MSE")
+    levhar_fc, levhar_actual = rolling_forecast_ols(
+        levhar_train, levhar_test,
+        feature_cols=[
+        "rv_lag1", "rv_week", "rv_month",
+        "retneg_lag1", "retneg_week", "retneg_month"],
+        y_col="rv")
+    print(mse(levhar_fc, levhar_actual))
+
+    #SHAR model
+    print("\n SHAR forecasts MSE")
+    shar_fc, shar_actual = rolling_forecast_ols(
+        shar_train, shar_test,
+        feature_cols=[
+        "rvneg_lag1", "rvpos_lag1", "rv_week", "rv_month"],
+     y_col="rv")
+    print(mse(shar_fc, shar_actual))

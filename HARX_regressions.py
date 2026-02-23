@@ -172,3 +172,43 @@ if __name__=="__main__":
     lharx_actual=np.exp(lharx_actual_log)
 
     print(mse(lharx_fc, lharx_actual))
+
+def get_harx_data():
+    """
+    Returns the HAR‑X dataset:
+    X_harx : DataFrame with all regressors
+    y_harx : Series with realized variance (rv)
+
+    HAR-X regressors included:
+        rv_lag1, rv_week, rv_month,
+        VIX_lag1, T10Y_lag1, SP500_lag1,
+        NASDAQ_lag1, INFL_lag1, FEDFUN_lag1, EPU_lag1
+    """
+    # Endogenous HAR regressors
+    rv_lag1  = rv.shift(1)
+    rv_week  = rv.shift(1).rolling(5).mean()
+    rv_month = rv.shift(1).rolling(22).mean()
+
+    # Build the HAR‑X regressor matrix
+    X = pd.DataFrame({
+        "rv_lag1":    rv_lag1,
+        "rv_week":    rv_week,
+        "rv_month":   rv_month,
+        "VIX_lag1":   VIX.shift(1),
+        "T10Y_lag1":  T10Y.shift(1),
+        "SP500_lag1": SP500_ret.shift(1),
+        "NASDAQ_lag1":NASDAQ_ret.shift(1),
+        "INFL_lag1":  INFL.shift(1),
+        "FEDFUN_lag1":FEDFUN.shift(1),
+        "EPU_lag1":   EPU.shift(1),
+    })
+
+    y = rv.copy()
+
+    # Drop missing rows (e.g., from lagging)
+    df = pd.concat([X, y.rename("rv")], axis=1).dropna()
+
+    X_harx = df.drop(columns=["rv"])
+    y_harx = df["rv"]
+
+    return X_harx, y_harx
